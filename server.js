@@ -1,16 +1,19 @@
 // server.js
-// Always-on webhook server. Listens for incoming WhatsApp messages
-// and automatically replies with today's report image.
+// Always-on webhook server. Listens for incoming WhatsApp messages,
+// matches the message text against reports.json, and replies with
+// the matching report image — sent back to whoever messaged.
 
 const express = require('express');
-const { runDailyReport } = require('./index');
+const { runReport } = require('./index');
+const { loadReports, findReportByTrigger } = require('./reports');
+const { sendReportImage, sendTextMessage } = require('./whatsapp');
 
 const app = express();
 app.use(express.json());
 
 const VERIFY_TOKEN = process.env.WEBHOOK_VERIFY_TOKEN;
 
-// 1. Meta calls this once via GET to verify your webhook URL during setup
+// Webhook verification (Meta calls this once when you save the config)
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -25,10 +28,24 @@ app.get('/webhook', (req, res) => {
   return res.sendStatus(403);
 });
 
-// 2. Meta calls this via POST every time a message event happens
+// Privacy policy page (required by Meta to enable Live mode)
+app.get('/privacy-policy', (req, res) => {
+  res.send(`
+    <html>
+      <head><title>Privacy Policy - Daily Report Bot</title></head>
+      <body style="font-family: sans-serif; max-width: 600px; margin: 40px auto; line-height: 1.6;">
+        <h1>Privacy Policy</h1>
+        <p>This internal tool generates and sends report images via WhatsApp on request. It does not collect, store, or share any personal data beyond what is necessary to deliver messages via the WhatsApp Business API.</p>
+        <p>Report content is sourced directly from private Google Sheets accessible only to authorized team members.</p>
+        <p>Last updated: ${new Date().toLocaleDateString('en-IN')}</p>
+      </body>
+    </html>
+  `);
+});
+
+// Incoming message handler
 app.post('/webhook', async (req, res) => {
-  // Always respond 200 immediately — Meta expects a fast ack,
-  // and will retry aggressively if we're slow/silent.
+  // Ack immediately — Meta expects a fast response and retries if we're slow.
   res.sendStatus(200);
 
   try {
@@ -37,42 +54,48 @@ app.post('/webhook', async (req, res) => {
     const messages = change?.value?.messages;
 
     if (!messages || messages.length === 0) {
-      // This POST was a status update (delivered/read), not a new message — ignore it.
+      // Status update (delivered/read), not a new message — ignore.
       return;
     }
 
-    const incomingMessage = messages[0];
-    const fromNumber = incomingMessage.from;
+    const incoming = messages[0];
+    const fromNumber = incoming.from;
+    const text = incoming.text?.body?.trim().toLowerCase() || '';
 
-    console.log(`[webhook] Incoming message from ${fromNumber}, triggering report...`);
+    console.log(`[webhook] Message from ${fromNumber}: "${text}"`);
 
-    // Reuse the exact same pipeline from index.js
-    await runDailyReport();
+    // Help / menu command
+    if (!text || text === 'menu' || text === 'help') {
+      const reports = loadReports();
+      const list = reports.map(r => `• *${r.trigger}* — ${r.label}`).join('\n');
+      await sendTextMessage(fromNumber, `📊 Available reports — reply with a keyword:\n\n${list}`);
+      return;
+    }
 
-    console.log(`[webhook] Report sent successfully to ${fromNumber}.`);
+    // Look up matching report
+    const report = findReportByTrigger(text);
+    if (!report) {
+      await sendTextMessage(
+        fromNumber,
+        `❓ No report found for "${text}". Type *menu* to see available reports.`
+      );
+      return;
+    }
+
+    await sendTextMessage(fromNumber, `⏳ Generating "${report.label}"...`);
+
+    const pngPath = await runReport(report);
+    const caption = `📊 ${report.label} — ${new Date().toLocaleDateString('en-IN')}`;
+    await sendReportImage(pngPath, caption, fromNumber);
+
+    console.log(`[webhook] Report "${report.id}" sent to ${fromNumber}.`);
 
   } catch (err) {
-    console.error('[webhook] Failed to process incoming message:', err.message);
+    console.error('[webhook] Failed to process message:', err.message);
   }
 });
 
 const PORT = process.env.PORT || 3000;
-// Simple static privacy policy page — required by Meta to enable Live mode
-app.get('/privacy-policy', (req, res) => {
-  res.send(`
-    <html>
-      <head><title>Privacy Policy - DailyReportBot</title></head>
-      <body style="font-family: sans-serif; max-width: 600px; margin: 40px auto; line-height: 1.6;">
-        <h1>Privacy Policy</h1>
-        <p>DailyReportBot is a personal automation tool that generates and sends daily report images via WhatsApp.</p>
-        <p>This application does not collect, store, or share any personal data beyond what is necessary to send report messages via the WhatsApp Business API. No data is sold or shared with third parties.</p>
-        <p>Report content is sourced directly from a private Google Sheet and is not accessible to anyone outside the application owner.</p>
-        <p>For questions, contact the application owner directly.</p>
-        <p>Last updated: ${new Date().toLocaleDateString('en-IN')}</p>
-      </body>
-    </html>
-  `);
-});
 app.listen(PORT, () => {
   console.log(`[server] Webhook server listening on port ${PORT}`);
 });

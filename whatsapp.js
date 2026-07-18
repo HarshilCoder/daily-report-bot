@@ -1,17 +1,18 @@
 // whatsapp.js
-// Uploads a local image to WhatsApp Cloud API and sends it as a message.
+// Uploads local images to WhatsApp Cloud API and sends messages.
+// Supports dynamic recipients so replies go back to whoever messaged the bot.
 
 const axios = require('axios');
 const fs = require('fs');
 const FormData = require('form-data');
 require('dotenv').config();
 
-const GRAPH_API_VERSION = 'v21.0'; // update if Meta deprecates this version
+const GRAPH_API_VERSION = 'v21.0';
 
 /**
  * Uploads a local image file to WhatsApp Cloud API's media endpoint.
- * @param {string} imagePath - Local path to the PNG file.
- * @returns {Promise<string>} media_id to reference in the send step.
+ * @param {string} imagePath
+ * @returns {Promise<string>} media_id
  */
 async function uploadMedia(imagePath) {
   const phoneNumberId = process.env.PHONE_NUMBER_ID;
@@ -25,9 +26,7 @@ async function uploadMedia(imagePath) {
 
   const form = new FormData();
   form.append('messaging_product', 'whatsapp');
-  form.append('file', fs.createReadStream(imagePath), {
-    contentType: 'image/png'
-  });
+  form.append('file', fs.createReadStream(imagePath), { contentType: 'image/png' });
 
   let response;
   try {
@@ -35,10 +34,7 @@ async function uploadMedia(imagePath) {
       `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/media`,
       form,
       {
-        headers: {
-          ...form.getHeaders(),
-          Authorization: `Bearer ${accessToken}`
-        },
+        headers: { ...form.getHeaders(), Authorization: `Bearer ${accessToken}` },
         maxBodyLength: Infinity
       }
     );
@@ -60,14 +56,14 @@ async function uploadMedia(imagePath) {
  * Sends an image message using a previously uploaded media_id.
  * @param {string} mediaId
  * @param {string} [caption]
- * @returns {Promise<object>} WhatsApp API response data.
+ * @param {string} [toNumber] - if omitted, falls back to .env TO_NUMBER
  */
-async function sendImageMessage(mediaId, caption = '') {
+async function sendImageMessage(mediaId, caption = '', toNumber = null) {
   const phoneNumberId = process.env.PHONE_NUMBER_ID;
   const accessToken = process.env.ACCESS_TOKEN;
-  const toNumber = process.env.TO_NUMBER;
+  const recipient = toNumber || process.env.TO_NUMBER;
 
-  console.log('[whatsapp] Sending image message...', { toNumber, mediaId });
+  console.log('[whatsapp] Sending image message...', { toNumber: recipient, mediaId });
 
   let response;
   try {
@@ -75,19 +71,11 @@ async function sendImageMessage(mediaId, caption = '') {
       `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`,
       {
         messaging_product: 'whatsapp',
-        to: toNumber,
+        to: recipient,
         type: 'image',
-        image: {
-          id: mediaId,
-          caption
-        }
+        image: { id: mediaId, caption }
       },
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        }
-      }
+      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
     );
   } catch (err) {
     const details = err.response?.data ? JSON.stringify(err.response.data) : err.message;
@@ -102,10 +90,43 @@ async function sendImageMessage(mediaId, caption = '') {
  * Convenience wrapper: upload + send in one call.
  * @param {string} imagePath
  * @param {string} [caption]
+ * @param {string} [toNumber]
  */
-async function sendReportImage(imagePath, caption = '') {
+async function sendReportImage(imagePath, caption = '', toNumber = null) {
   const mediaId = await uploadMedia(imagePath);
-  return sendImageMessage(mediaId, caption);
+  return sendImageMessage(mediaId, caption, toNumber);
 }
 
-module.exports = { uploadMedia, sendImageMessage, sendReportImage };
+/**
+ * Sends a plain text message (for menus, errors, confirmations).
+ * @param {string} toNumber
+ * @param {string} text
+ */
+async function sendTextMessage(toNumber, text) {
+  const phoneNumberId = process.env.PHONE_NUMBER_ID;
+  const accessToken = process.env.ACCESS_TOKEN;
+
+  console.log('[whatsapp] Sending text message...', { toNumber });
+
+  let response;
+  try {
+    response = await axios.post(
+      `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        to: toNumber,
+        type: 'text',
+        text: { body: text }
+      },
+      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
+    );
+  } catch (err) {
+    const details = err.response?.data ? JSON.stringify(err.response.data) : err.message;
+    throw new Error(`Send text failed: ${details}`);
+  }
+
+  console.log('[whatsapp] Text message sent successfully.');
+  return response.data;
+}
+
+module.exports = { uploadMedia, sendImageMessage, sendReportImage, sendTextMessage };

@@ -1,13 +1,11 @@
 // index.js
-// Full daily pipeline: Sheet range → PDF → PNG → WhatsApp
-// Run manually with `node index.js`, or hook into a scheduler later.
+// Generic report pipeline: Sheet range -> PDF -> PNG
+// Called per-report by server.js, passing in a report definition from reports.json
 
 const fs = require('fs');
 const path = require('path');
-const config = require('./config');
 const { fetchReportPdf } = require('./appscript');
 const { convertPdfToPng } = require('./convert');
-const { sendReportImage } = require('./whatsapp');
 
 const TEMP_DIR = path.join(__dirname, 'temp');
 const OUTPUT_DIR = path.join(__dirname, 'output');
@@ -20,58 +18,47 @@ function ensureDirs() {
   });
 }
 
-async function runDailyReport() {
-  const startTime = Date.now();
-  console.log('========================================');
-  console.log(`[index] Starting daily report run — ${new Date().toISOString()}`);
-  console.log('[index] Config:', config);
-  console.log('========================================');
-
+/**
+ * Runs the PDF -> PNG pipeline for a given report definition.
+ * @param {Object} report - one entry from reports.json
+ * @param {string} report.id
+ * @param {string} report.label
+ * @param {string} report.spreadsheetId
+ * @param {string} report.sheetName
+ * @param {string} report.range
+ * @returns {Promise<string>} path to the generated PNG
+ */
+async function runReport(report) {
   ensureDirs();
+  const startTime = Date.now();
+  const uniqueName = `${report.id}_${Date.now()}`; // avoids collisions between simultaneous requests
+
+  console.log(`[index] Running report "${report.label}" (${report.id})`);
 
   try {
-    // Step 1: Fetch PDF from Apps Script
-    console.log('\n[index] STEP 1/3 — Fetching PDF from Google Sheets...');
-    const pdfBuffer = await fetchReportPdf(config);
-    const pdfPath = path.join(TEMP_DIR, `${config.outputName}.pdf`);
+    const pdfBuffer = await fetchReportPdf({
+      spreadsheetId: report.spreadsheetId,
+      sheetName: report.sheetName,
+      range: report.range
+    });
+
+    const pdfPath = path.join(TEMP_DIR, `${uniqueName}.pdf`);
     fs.writeFileSync(pdfPath, pdfBuffer);
     console.log('[index] PDF saved:', pdfPath);
 
-    // Step 2: Convert PDF to PNG
-    console.log('\n[index] STEP 2/3 — Converting PDF to PNG...');
-    const pngPath = await convertPdfToPng(pdfPath, config.outputName, OUTPUT_DIR);
+    const pngPath = await convertPdfToPng(pdfPath, uniqueName, OUTPUT_DIR);
     console.log('[index] PNG saved:', pngPath);
 
-    // Step 3: Send via WhatsApp
-    console.log('\n[index] STEP 3/3 — Sending via WhatsApp...');
-    const caption = `📊 ${config.outputName} — ${new Date().toLocaleDateString('en-IN')}`;
-    const sendResult = await sendReportImage(pngPath, caption);
-    console.log('[index] WhatsApp send confirmed. Message ID:', sendResult.messages?.[0]?.id);
-
     const durationSec = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.log('\n========================================');
-    console.log(`✅ [index] Daily report completed successfully in ${durationSec}s`);
-    console.log('========================================');
+    console.log(`[index] Report "${report.label}" completed in ${durationSec}s`);
 
-    return { success: true, pdfPath, pngPath, sendResult };
+    return pngPath;
 
   } catch (err) {
     const durationSec = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.error('\n========================================');
-    console.error(`❌ [index] Daily report FAILED after ${durationSec}s`);
-    console.error('[index] Error:', err.message);
-    console.error('========================================');
-
-    // Re-throw so a scheduler/process manager can detect failure (non-zero exit code)
+    console.error(`[index] Report "${report.label}" FAILED after ${durationSec}s:`, err.message);
     throw err;
   }
 }
 
-// Run immediately if this file is executed directly (not imported as a module)
-if (require.main === module) {
-  runDailyReport()
-    .then(() => process.exit(0))
-    .catch(() => process.exit(1));
-}
-
-module.exports = { runDailyReport };
+module.exports = { runReport };

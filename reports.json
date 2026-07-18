@@ -1,0 +1,10 @@
+[
+  {
+    "id": "gujarat-attendance",
+    "trigger": "gujarat",
+    "label": "Gujarat Vidyapeeth Attendance",
+    "spreadsheetId": "1-D49BgBIB4DIPmdIOJq-vs4v-dUmc4NmH67waDyF8a0",
+    "sheetName": "Test1",
+    "range": "B4:D8"
+  }
+]
