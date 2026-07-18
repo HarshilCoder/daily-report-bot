@@ -6,5 +6,13 @@
     "spreadsheetId": "1-D49BgBIB4DIPmdIOJq-vs4v-dUmc4NmH67waDyF8a0",
     "sheetName": "Test1",
     "range": "B4:D8"
+  },
+  {
+    "id": "registration-report",
+    "trigger": "reg",
+    "label": "MTD Registration report",
+    "spreadsheetId": "1rS15cfjfCw3LlZGDh9criTIzTkCK20N3Ogv1kqoxc5c",
+    "sheetName": "Report",
+    "range": "B2:O24"
   }
 ]
