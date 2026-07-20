@@ -1,8 +1,32 @@
 // appscript.js
 // Calls the Apps Script Web App and returns a PDF Buffer.
+// Includes a longer timeout and one automatic retry, since larger
+// ranges (more rows/columns) take noticeably longer to export than
+// small ones, and Apps Script cold-starts can occasionally be slow.
 
 const axios = require('axios');
 require('dotenv').config();
+
+/**
+ * Makes the actual HTTP request to the Apps Script Web App,
+ * retrying once if the first attempt times out.
+ */
+async function fetchWithRetry(url, params, attempt = 1) {
+  try {
+    return await axios.get(url, {
+      params,
+      responseType: 'text', // Apps Script returns base64 text, not binary
+      timeout: 120000 // 2 minutes — larger ranges take longer to export
+    });
+  } catch (err) {
+    const isTimeout = err.code === 'ECONNABORTED';
+    if (isTimeout && attempt < 2) {
+      console.warn(`[appscript] Timeout on attempt ${attempt}, retrying...`);
+      return fetchWithRetry(url, params, attempt + 1);
+    }
+    throw err;
+  }
+}
 
 /**
  * Fetches the exported PDF for a given range from the Apps Script Web App.
@@ -24,11 +48,7 @@ async function fetchReportPdf({ spreadsheetId, sheetName, range }) {
 
   let response;
   try {
-    response = await axios.get(url, {
-      params: { spreadsheetId, sheetName, range, secret },
-      responseType: 'text', // Apps Script returns base64 text, not binary
-      timeout: 60000
-    });
+    response = await fetchWithRetry(url, { spreadsheetId, sheetName, range, secret });
   } catch (err) {
     throw new Error(`Failed to reach Apps Script Web App: ${err.message}`);
   }
