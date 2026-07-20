@@ -128,5 +128,56 @@ async function sendTextMessage(toNumber, text) {
   console.log('[whatsapp] Text message sent successfully.');
   return response.data;
 }
+/**
+ * Sends an interactive List Message — a tappable menu with sections of options.
+ * @param {string} toNumber
+ * @param {Array<{id: string, title: string, description?: string}>} rows - max 10 total
+ * @param {string} [bodyText]
+ */
+async function sendListMessage(toNumber, rows, bodyText = 'Select a report to receive') {
+  const phoneNumberId = process.env.PHONE_NUMBER_ID;
+  const accessToken = process.env.ACCESS_TOKEN;
+
+  // WhatsApp limits: row title <= 24 chars, description <= 72 chars, max 10 rows total
+  const safeRows = rows.slice(0, 10).map(r => ({
+    id: r.id,
+    title: r.title.slice(0, 24),
+    description: r.description ? r.description.slice(0, 72) : undefined
+  }));
+
+  console.log('[whatsapp] Sending list message...', { toNumber, rowCount: safeRows.length });
+
+  let response;
+  try {
+    response = await axios.post(
+      `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        to: toNumber,
+        type: 'interactive',
+        interactive: {
+          type: 'list',
+          header: { type: 'text', text: '📊 Reports' },
+          body: { text: bodyText },
+          footer: { text: 'Tap to select' },
+          action: {
+            button: 'View Reports',
+            sections: [{ title: 'Available options', rows: safeRows }]
+          }
+        }
+      },
+      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
+    );
+  } catch (err) {
+    const details = err.response?.data ? JSON.stringify(err.response.data) : err.message;
+    throw new Error(`Send list message failed: ${details}`);
+  }
+
+  console.log('[whatsapp] List message sent successfully.');
+  return response.data;
+}
+
+module.exports = { uploadMedia, sendImageMessage, sendReportImage, sendTextMessage, sendListMessage };
+
 
 module.exports = { uploadMedia, sendImageMessage, sendReportImage, sendTextMessage };

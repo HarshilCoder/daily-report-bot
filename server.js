@@ -9,7 +9,7 @@ const {
   findReportById,
   findBundleByTrigger
 } = require('./reports');
-const { sendReportImage, sendTextMessage } = require('./whatsapp');
+const { sendReportImage, sendTextMessage, sendListMessage } = require('./whatsapp');
 
 const app = express();
 
@@ -63,11 +63,67 @@ async function safeSendError(toNumber, message) {
   }
 }
 
-/** Runs one report and sends it to the given number. Throws on failure. */
 async function sendOneReport(report, toNumber) {
   const pngPath = await runReport(report);
   const caption = `📊 ${report.label} — ${new Date().toLocaleDateString('en-IN')}`;
   await sendReportImage(pngPath, caption, toNumber);
+}
+
+/** Builds the tappable list rows from reports.json + bundles.json */
+function buildMenuRows() {
+  const reports = loadReports();
+  const bundles = loadBundles();
+
+  const reportRows = reports.map(r => ({
+    id: `report:${r.trigger}`,
+    title: r.label,
+    description: 'Single report'
+  }));
+
+  const bundleRows = bundles.map(b => ({
+    id: `bundle:${b.trigger}`,
+    title: b.label,
+    description: `${b.reportIds.length} reports bundled`
+  }));
+
+  return [...reportRows, ...bundleRows];
+}
+
+/** Runs whatever was selected/typed — shared by both list-tap and text-typed paths */
+async function handleSelection(kind, triggerValue, fromNumber) {
+  if (kind === 'bundle') {
+    const bundle = findBundleByTrigger(triggerValue);
+    if (!bundle) {
+      await safeSendError(fromNumber, `❓ That bundle isn't available anymore. Type *menu* to see current options.`);
+      return;
+    }
+    await sendTextMessage(fromNumber, `⏳ Generating ${bundle.reportIds.length} reports for "${bundle.label}"...`);
+    for (const reportId of bundle.reportIds) {
+      const report = findReportById(reportId);
+      if (!report) continue;
+      try {
+        await sendOneReport(report, fromNumber);
+      } catch (err) {
+        console.error(`[webhook] Bundle report "${report.id}" failed:`, err.message);
+        await safeSendError(fromNumber, `⚠️ Couldn't generate "${report.label}" (part of ${bundle.label}). Continuing...`);
+      }
+    }
+    return;
+  }
+
+  // kind === 'report'
+  const report = findReportByTrigger(triggerValue);
+  if (!report) {
+    await safeSendError(fromNumber, `❓ No report found for "${triggerValue}". Type *menu* to see available reports.`);
+    return;
+  }
+  try {
+    await sendTextMessage(fromNumber, `⏳ Generating "${report.label}"...`);
+    await sendOneReport(report, fromNumber);
+  } catch (err) {
+    console.error(`[webhook] Failed to generate/send report "${report.id}":`, err.message);
+    await safeSendError(fromNumber, `⚠️ Couldn't generate "${report.label}" right now. Please try again in a moment.`);
+  }
 }
 
 app.post(
@@ -99,67 +155,47 @@ app.post(
 
       const incoming = messages[0];
       const fromNumber = incoming.from;
-      const text = incoming.text?.body?.trim().toLowerCase() || '';
 
+      // --- Case 1: user tapped an option from the list ---
+      if (incoming.type === 'interactive' && incoming.interactive?.type === 'list_reply') {
+        const selectedId = incoming.interactive.list_reply.id; // e.g. "report:gujarat" or "bundle:morning report"
+        console.log(`[webhook] List selection from ${fromNumber}: "${selectedId}"`);
+
+        const [kind, ...rest] = selectedId.split(':');
+        const triggerValue = rest.join(':'); // handles bundle triggers that contain spaces/colons safely
+
+        await handleSelection(kind, triggerValue, fromNumber);
+        return;
+      }
+
+      // --- Case 2: user typed plain text (fallback, still supported) ---
+      const text = incoming.text?.body?.trim().toLowerCase() || '';
       console.log(`[webhook] Message from ${fromNumber}: "${text}"`);
 
-      // Help / menu command — lists both single reports and bundles
       if (!text || text === 'menu' || text === 'help') {
         try {
-          const reports = loadReports();
-          const bundles = loadBundles();
-          const reportList = reports.map(r => `• *${r.trigger}* — ${r.label}`).join('\n');
-          const bundleList = bundles.map(b => `• *${b.trigger}* — ${b.label} (${b.reportIds.length} reports)`).join('\n');
-          const message = `📊 Available reports:\n\n${reportList}` +
-            (bundles.length ? `\n\n📦 Bundles:\n\n${bundleList}` : '');
-          await sendTextMessage(fromNumber, message);
+          const rows = buildMenuRows();
+          await sendListMessage(fromNumber, rows, '📊 Select a report to receive:');
         } catch (err) {
-          console.error('[webhook] Failed to send menu:', err.message);
+          console.error('[webhook] Failed to send list menu:', err.message);
           await safeSendError(fromNumber, 'Something went wrong loading the menu. Please try again shortly.');
         }
         return;
       }
 
-      // Check bundles first (multi-word triggers like "morning report")
+      // Typed keyword — check bundle first, then single report
       const bundle = findBundleByTrigger(text);
       if (bundle) {
-        await sendTextMessage(fromNumber, `⏳ Generating ${bundle.reportIds.length} reports for "${bundle.label}"...`);
-
-        for (const reportId of bundle.reportIds) {
-          const report = findReportById(reportId);
-          if (!report) {
-            console.warn(`[webhook] Bundle "${bundle.trigger}" references unknown report id "${reportId}"`);
-            continue;
-          }
-          try {
-            await sendOneReport(report, fromNumber);
-            console.log(`[webhook] Bundle report "${report.id}" sent to ${fromNumber}.`);
-          } catch (err) {
-            console.error(`[webhook] Bundle report "${report.id}" failed:`, err.message);
-            await safeSendError(fromNumber, `⚠️ Couldn't generate "${report.label}" (part of ${bundle.label}). Continuing with the rest...`);
-          }
-        }
+        await handleSelection('bundle', text, fromNumber);
         return;
       }
 
-      // Single report match
       const report = findReportByTrigger(text);
       if (!report) {
         await safeSendError(fromNumber, `❓ No report found for "${text}". Type *menu* to see available reports.`);
         return;
       }
-
-      try {
-        await sendTextMessage(fromNumber, `⏳ Generating "${report.label}"...`);
-        await sendOneReport(report, fromNumber);
-        console.log(`[webhook] Report "${report.id}" sent to ${fromNumber}.`);
-      } catch (err) {
-        console.error(`[webhook] Failed to generate/send report "${report.id}":`, err.message);
-        await safeSendError(
-          fromNumber,
-          `⚠️ Couldn't generate "${report.label}" right now. Please try again in a moment.`
-        );
-      }
+      await handleSelection('report', text, fromNumber);
 
     } catch (err) {
       console.error('[webhook] Unexpected error processing message:', err.message);
