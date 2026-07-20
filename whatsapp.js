@@ -178,6 +178,3 @@ async function sendListMessage(toNumber, rows, bodyText = 'Select a report to re
 }
 
 module.exports = { uploadMedia, sendImageMessage, sendReportImage, sendTextMessage, sendListMessage };
-
-
-module.exports = { uploadMedia, sendImageMessage, sendReportImage, sendTextMessage };
