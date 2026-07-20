@@ -172,7 +172,7 @@ app.post(
       const text = incoming.text?.body?.trim().toLowerCase() || '';
       console.log(`[webhook] Message from ${fromNumber}: "${text}"`);
 
-      if (!text || text === 'menu' || text === 'help') {
+      if (!text || text === 'PW' || text === 'help') {
         try {
           const rows = buildMenuRows();
           await sendListMessage(fromNumber, rows, '📊 Select a report to receive:');
