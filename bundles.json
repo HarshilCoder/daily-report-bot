@@ -1,0 +1,7 @@
+[
+  {
+    "trigger": "morning report",
+    "label": "Morning Report Bundle",
+    "reportIds": ["gujarat-attendance", "registration-report"]
+  }
+]
