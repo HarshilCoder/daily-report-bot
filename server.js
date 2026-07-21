@@ -1,6 +1,8 @@
 // server.js
 const express = require('express');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const { runReport } = require('./index');
 const {
   loadReports,
@@ -89,7 +91,7 @@ function buildMenuRows() {
   return [...reportRows, ...bundleRows];
 }
 
-/** Runs whatever was selected/typed — shared by both list-tap and text-typed paths */
+/** Runs whatever was selected/typed — shared by list-tap, text-typed, and cron paths */
 async function handleSelection(kind, triggerValue, fromNumber) {
   if (kind === 'bundle') {
     const bundle = findBundleByTrigger(triggerValue);
@@ -124,6 +126,12 @@ async function handleSelection(kind, triggerValue, fromNumber) {
     console.error(`[webhook] Failed to generate/send report "${report.id}":`, err.message);
     await safeSendError(fromNumber, `⚠️ Couldn't generate "${report.label}" right now. Please try again in a moment.`);
   }
+}
+
+function loadSchedule() {
+  const filePath = path.join(__dirname, 'schedule.json');
+  if (!fs.existsSync(filePath)) return [];
+  return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
 }
 
 app.post(
@@ -162,7 +170,7 @@ app.post(
         console.log(`[webhook] List selection from ${fromNumber}: "${selectedId}"`);
 
         const [kind, ...rest] = selectedId.split(':');
-        const triggerValue = rest.join(':'); // handles bundle triggers that contain spaces/colons safely
+        const triggerValue = rest.join(':');
 
         await handleSelection(kind, triggerValue, fromNumber);
         return;
@@ -202,6 +210,36 @@ app.post(
     }
   }
 );
+
+// --- Scheduled reports (triggered by an external cron service, e.g. cron-job.org) ---
+// Not triggered by WhatsApp messages at all — this runs on a fixed daily schedule.
+app.post('/cron/:jobId', async (req, res) => {
+  const providedSecret = req.query.secret;
+  if (providedSecret !== process.env.CRON_SECRET) {
+    return res.sendStatus(403);
+  }
+
+  res.sendStatus(200); // ack immediately, process in background
+
+  const jobs = loadSchedule();
+  const job = jobs.find(j => j.id === req.params.jobId);
+
+  if (!job) {
+    console.warn(`[cron] No schedule job found with id "${req.params.jobId}"`);
+    return;
+  }
+
+  console.log(`[cron] Running scheduled job "${job.id}" for ${job.recipients.length} recipient(s)`);
+
+  for (const recipient of job.recipients) {
+    try {
+      await handleSelection(job.type, job.trigger, recipient);
+      console.log(`[cron] Job "${job.id}" delivered to ${recipient}`);
+    } catch (err) {
+      console.error(`[cron] Job "${job.id}" failed for ${recipient}:`, err.message);
+    }
+  }
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {

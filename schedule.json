@@ -1,0 +1,8 @@
+[
+  {
+    "id": "daily-morning",
+    "type": "bundle",
+    "trigger": "morning report",
+    "recipients": ["919427736429"]
+  }
+]
