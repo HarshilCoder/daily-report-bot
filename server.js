@@ -94,7 +94,7 @@ async function handleSelection(kind, triggerValue, fromNumber) {
   if (kind === 'bundle') {
     const bundle = findBundleByTrigger(triggerValue);
     if (!bundle) {
-      await safeSendError(fromNumber, `❓ That bundle isn't available anymore. Type *menu* to see current options.`);
+      await safeSendError(fromNumber, `❓ That bundle isn't available anymore. Type *pw* to see current options.`);
       return;
     }
     await sendTextMessage(fromNumber, `⏳ Generating ${bundle.reportIds.length} reports for "${bundle.label}"...`);
@@ -114,7 +114,7 @@ async function handleSelection(kind, triggerValue, fromNumber) {
   // kind === 'report'
   const report = findReportByTrigger(triggerValue);
   if (!report) {
-    await safeSendError(fromNumber, `❓ No report found for "${triggerValue}". Type *menu* to see available reports.`);
+    await safeSendError(fromNumber, `❓ No report found for "${triggerValue}". Type *pw* to see available reports.`);
     return;
   }
   try {
@@ -192,7 +192,7 @@ app.post(
 
       const report = findReportByTrigger(text);
       if (!report) {
-        await safeSendError(fromNumber, `❓ No report found for "${text}". Type *menu* to see available reports.`);
+        await safeSendError(fromNumber, `❓ No report found for "${text}". Type *pw* to see available reports.`);
         return;
       }
       await handleSelection('report', text, fromNumber);
