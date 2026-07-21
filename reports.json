@@ -14,5 +14,37 @@
     "spreadsheetId": "1rS15cfjfCw3LlZGDh9criTIzTkCK20N3Ogv1kqoxc5c",
     "sheetName": "Report",
     "range": "B2:O24"
+  },
+    {
+    "id": "Adm + Retention (senior)",
+    "trigger": "POWERBI",
+    "label": "Adm + Retention (senior) report",
+    "spreadsheetId": "1rS15cfjfCw3LlZGDh9criTIzTkCK20N3Ogv1kqoxc5c",
+    "sheetName": "POWERBI",
+    "range": "A66:L88"
+  },
+    {
+    "id": "Reg Pending",
+    "trigger": "RegPending",
+    "label": "Registration Pending report",
+    "spreadsheetId": "1rS15cfjfCw3LlZGDh9criTIzTkCK20N3Ogv1kqoxc5c",
+    "sheetName": "POWERBI",
+    "range": "A92:M106"
+  },
+    {
+    "id": "D-1 Eligibility",
+    "trigger": "D-1",
+    "label": "D-1 1st EMI Report",
+    "spreadsheetId": "1rS15cfjfCw3LlZGDh9criTIzTkCK20N3Ogv1kqoxc5c",
+    "sheetName": "D-1",
+    "range": "A43:R60"
+  },
+    {
+    "id": "Dropper NEET",
+    "trigger": "Dropper NEET",
+    "label": "Dropper NEET Conversion Report",
+    "spreadsheetId": "1rS15cfjfCw3LlZGDh9criTIzTkCK20N3Ogv1kqoxc5c",
+    "sheetName": "DROPPER NEET Con",
+    "range": "B22:P35"
   }
 ]

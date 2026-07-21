@@ -2,6 +2,6 @@
   {
     "trigger": "morning report",
     "label": "Morning Report Bundle",
-    "reportIds": ["gujarat-attendance", "registration-report"]
+    "reportIds": [ "registration-report","Adm + Retention (senior)","Reg Pending","D-1 Eligibility","Dropper NEET"]
   }
 ]
