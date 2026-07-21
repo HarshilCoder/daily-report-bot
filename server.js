@@ -12,6 +12,8 @@ const {
   findBundleByTrigger
 } = require('./reports');
 const { sendReportImage, sendTextMessage, sendListMessage } = require('./whatsapp');
+const { fetchReportValues } = require('./appscript');
+const { generateInsightCaption } = require('./ai');
 
 const app = express();
 
@@ -191,7 +193,37 @@ app.post(
         return;
       }
 
-      // Typed keyword — check bundle first, then single report
+      // --- NEW, OPT-IN: "ai <keyword>" — sends the normal report, then a
+      // follow-up AI-generated insight message. Fully separate code path;
+      // does not touch or affect any existing trigger. ---
+      if (text.startsWith('ai ')) {
+        const innerTrigger = text.slice(3).trim();
+        const innerReport = findReportByTrigger(innerTrigger);
+
+        if (innerReport) {
+          await handleSelection('report', innerTrigger, fromNumber); // normal report, unchanged behavior
+
+          try {
+            const values = await fetchReportValues({
+              spreadsheetId: innerReport.spreadsheetId,
+              sheetName: innerReport.sheetName,
+              range: innerReport.range
+            });
+            const insight = await generateInsightCaption(innerReport.label, values);
+            if (insight) {
+              await sendTextMessage(fromNumber, `🤖 AI Insight: ${insight}`);
+            }
+          } catch (err) {
+            console.error('[ai] Insight generation failed:', err.message);
+            // Silently skip — the report itself already sent successfully above
+          }
+          return;
+        }
+        // If "ai <something>" didn't match a known report, fall through
+        // to the normal "no report found" handling below.
+      }
+
+      // Typed keyword — check bundle first, then single report (existing, unchanged)
       const bundle = findBundleByTrigger(text);
       if (bundle) {
         await handleSelection('bundle', text, fromNumber);
@@ -212,14 +244,13 @@ app.post(
 );
 
 // --- Scheduled reports (triggered by an external cron service, e.g. cron-job.org) ---
-// Not triggered by WhatsApp messages at all — this runs on a fixed daily schedule.
 app.post('/cron/:jobId', async (req, res) => {
   const providedSecret = req.query.secret;
   if (providedSecret !== process.env.CRON_SECRET) {
     return res.sendStatus(403);
   }
 
-  res.sendStatus(200); // ack immediately, process in background
+  res.sendStatus(200);
 
   const jobs = loadSchedule();
   const job = jobs.find(j => j.id === req.params.jobId);

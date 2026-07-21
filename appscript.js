@@ -76,5 +76,20 @@ async function fetchReportPdf({ spreadsheetId, sheetName, range }) {
 
   return pdfBuffer;
 }
+// NEW — separate, optional function for the AI insight feature
+async function fetchReportValues({ spreadsheetId, sheetName, range }) {
+  const url = process.env.APPSCRIPT_URL;
+  const secret = process.env.APPSCRIPT_SECRET;
 
-module.exports = { fetchReportPdf };
+  const response = await axios.get(url, {
+    params: { spreadsheetId, sheetName, range, secret, mode: 'values' },
+    responseType: 'text',
+    timeout: 60000
+  });
+
+  const parsed = JSON.parse(response.data);
+  if (parsed.error) throw new Error(parsed.error);
+  return parsed.values || [];
+}
+
+module.exports = { fetchReportPdf, fetchReportValues };

@@ -1,12 +1,7 @@
 /**
  * appscript-source/Code.gs
- * Web App that exports a specific range from a specific sheet as PDF
- * and returns it directly as the HTTP response.
- *
- * NOTE: This file is version-controlled here for reference/rollback,
- * but must still be manually copy-pasted into the Apps Script editor
- * (Extensions -> Apps Script, inside the target Sheet) and redeployed
- * whenever it changes. Apps Script does not read directly from GitHub.
+ * Existing PDF export behavior is UNCHANGED.
+ * New: an optional mode=values branch, used only by the opt-in AI feature.
  */
 
 function doGet(e) {
@@ -15,6 +10,7 @@ function doGet(e) {
     const sheetName = e.parameter.sheetName;
     const range = e.parameter.range;
     const secret = e.parameter.secret;
+    const mode = e.parameter.mode; // undefined for all your current calls
 
     const SHARED_SECRET = PropertiesService.getScriptProperties().getProperty('SHARED_SECRET');
     if (!secret || secret !== SHARED_SECRET) {
@@ -26,9 +22,16 @@ function doGet(e) {
         .setMimeType(ContentService.MimeType.TEXT);
     }
 
+    // NEW branch — only used by the opt-in AI insight feature
+    if (mode === 'values') {
+      const values = getRangeValues(spreadsheetId, sheetName, range);
+      return ContentService.createTextOutput(JSON.stringify({ values: values }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // Existing behavior — completely unchanged, exactly what's live right now
     const pdfBlob = exportRangeAsPdf(spreadsheetId, sheetName, range);
     const base64Pdf = Utilities.base64Encode(pdfBlob.getBytes());
-
     return ContentService.createTextOutput(base64Pdf)
       .setMimeType(ContentService.MimeType.TEXT);
 
@@ -38,6 +41,15 @@ function doGet(e) {
   }
 }
 
+// NEW — lightweight, read-only, no sheet duplication needed
+function getRangeValues(spreadsheetId, sheetName, rangeA1) {
+  const ss = SpreadsheetApp.openById(spreadsheetId);
+  const sourceSheet = ss.getSheetByName(sheetName);
+  if (!sourceSheet) throw new Error('Sheet not found: ' + sheetName);
+  return sourceSheet.getRange(rangeA1).getValues();
+}
+
+// UNCHANGED — this is your exact current working function
 function exportRangeAsPdf(spreadsheetId, sheetName, rangeA1) {
   const ss = SpreadsheetApp.openById(spreadsheetId);
   const sourceSheet = ss.getSheetByName(sheetName);
@@ -51,15 +63,12 @@ function exportRangeAsPdf(spreadsheetId, sheetName, rangeA1) {
   tempSheet.setName('__temp_export_' + new Date().getTime());
 
   try {
-    // Freeze all formulas into static values BEFORE deleting anything,
-    // so formulas referencing cells outside our range don't break (#REF!).
     const fullDataRange = tempSheet.getDataRange();
     const frozenValues = fullDataRange.getValues();
     fullDataRange.setValues(frozenValues);
 
     const startRow = sourceRange.getRow();
     const startCol = sourceRange.getColumn();
-
     const lastRow = tempSheet.getMaxRows();
     const lastCol = tempSheet.getMaxColumns();
 
@@ -69,7 +78,6 @@ function exportRangeAsPdf(spreadsheetId, sheetName, rangeA1) {
     if (startRow > 1) {
       tempSheet.deleteRows(1, startRow - 1);
     }
-
     if (startCol + numCols - 1 < lastCol) {
       tempSheet.deleteColumns(startCol + numCols, lastCol - (startCol + numCols - 1));
     }
