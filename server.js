@@ -147,8 +147,8 @@ app.post(
       return res.sendStatus(403);
     }
 
-    res.sendStatus(200);
-
+    res.status(200).json({ received: true }); // ack immediately, process in background
+    
     let body;
     try {
       body = JSON.parse(req.rawBody.toString('utf8'));
